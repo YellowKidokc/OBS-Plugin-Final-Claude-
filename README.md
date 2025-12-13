@@ -50,12 +50,25 @@ Example:
 
 ## Installation
 
-### From Source
+### Quick Install (Windows)
+
+1. Clone this repository into your vault's `.obsidian/plugins/obsidian-semantic-ai` folder
+2. Double-click **`install.bat`** - it handles everything automatically
+3. Restart Obsidian and enable the plugin
+
+### From Source (Manual)
 
 1. Clone this repository into your vault's `.obsidian/plugins/` folder
 2. Run `npm install` to install dependencies
 3. Run `npm run build` to compile the plugin
 4. Enable the plugin in Obsidian Settings → Community Plugins
+
+### Helper Scripts (Windows)
+
+| Script | Description |
+|--------|-------------|
+| `install.bat` | One-click installer - installs dependencies and builds the plugin |
+| `troubleshoot.bat` | Interactive troubleshooting menu with options to clean reinstall, rebuild, update packages, fix vulnerabilities, and more |
 
 ### Development
 
@@ -230,4 +243,6 @@ Inspired by [obsidian-note-definitions](https://github.com/dominiclet/obsidian-n
 
 ---
 
-Built with TypeScript for Obsidian.
+**Built with [Claude](https://claude.ai) (Anthropic) & TypeScript for Obsidian.**
+
+*This plugin was developed with assistance from Claude, Anthropic's AI assistant.*
