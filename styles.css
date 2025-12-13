@@ -490,3 +490,412 @@
   border-bottom: none;
   padding: 0.25rem 0;
 }
+
+/* ===== Concept Tracker ===== */
+.semantic-ai-tracker-header {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.semantic-ai-tracker-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.semantic-ai-tracker-tab {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.semantic-ai-tracker-tab:hover {
+  background: var(--background-modifier-hover);
+}
+
+.semantic-ai-tracker-tab.active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.semantic-ai-tracker-content {
+  padding: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 150px);
+}
+
+.semantic-ai-tracker-section {
+  margin-bottom: 1.5rem;
+}
+
+.semantic-ai-tracker-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.semantic-ai-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+
+.semantic-ai-info-item {
+  background: var(--background-secondary);
+  padding: 0.75rem;
+  border-radius: var(--radius-s);
+}
+
+.semantic-ai-info-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.semantic-ai-info-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Concept List */
+.semantic-ai-concept-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.semantic-ai-concept-list.scrollable {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.semantic-ai-concept-item {
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  padding: 0.5rem 0.75rem;
+}
+
+.semantic-ai-concept-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.semantic-ai-concept-badges {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.semantic-ai-badge {
+  font-size: 0.65rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 500;
+}
+
+.semantic-ai-badge.badge-axiom { background: #01579b; }
+.semantic-ai-badge.badge-claim { background: #e65100; }
+.semantic-ai-badge.badge-evidencebundle { background: #1b5e20; }
+.semantic-ai-badge.badge-relationship { background: #4a148c; }
+.semantic-ai-badge.badge-scientificprocess { background: #880e4f; }
+.semantic-ai-badge.badge-propername { background: #ff6f00; }
+.semantic-ai-badge.badge-wordontology { background: #3e2723; }
+
+.semantic-ai-concept-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.semantic-ai-concept-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.semantic-ai-concept-details {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.semantic-ai-concept-details summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.semantic-ai-occurrence-list {
+  margin: 0.5rem 0 0 1rem;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.semantic-ai-occurrence-list li {
+  margin-bottom: 0.25rem;
+}
+
+.semantic-ai-file-link {
+  color: var(--text-accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.semantic-ai-file-link:hover {
+  text-decoration: underline;
+}
+
+.semantic-ai-occ-type {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.semantic-ai-related {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.semantic-ai-first-seen {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.semantic-ai-muted {
+  color: var(--text-muted);
+}
+
+.semantic-ai-count-info {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+/* Relations */
+.semantic-ai-relation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.semantic-ai-relation-list.scrollable {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.semantic-ai-relation-item {
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.semantic-ai-strength {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-s);
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.semantic-ai-strength.strong {
+  background: var(--background-modifier-success);
+  color: var(--text-success);
+}
+
+.semantic-ai-strength.medium {
+  background: var(--background-modifier-warning);
+  color: var(--text-warning);
+}
+
+.semantic-ai-strength.weak {
+  background: var(--background-secondary-alt);
+  color: var(--text-muted);
+}
+
+.semantic-ai-relation-files {
+  font-size: 0.9rem;
+}
+
+.semantic-ai-shared-concepts {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Search */
+.semantic-ai-search-box {
+  margin-bottom: 1rem;
+}
+
+.semantic-ai-search-input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 1rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+}
+
+.semantic-ai-search-results {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* Index Modal */
+.semantic-ai-index-modal {
+  max-width: 500px;
+}
+
+.semantic-ai-estimate-section {
+  background: var(--background-secondary);
+  padding: 1rem;
+  border-radius: var(--radius-m);
+  margin: 1rem 0;
+}
+
+.semantic-ai-estimate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.semantic-ai-estimate-item {
+  display: flex;
+  justify-content: space-between;
+}
+
+.semantic-ai-estimate-label {
+  color: var(--text-muted);
+}
+
+.semantic-ai-estimate-value {
+  font-weight: 500;
+}
+
+.semantic-ai-index-warning {
+  background: var(--background-modifier-warning);
+  padding: 1rem;
+  border-radius: var(--radius-m);
+  margin: 1rem 0;
+}
+
+.semantic-ai-index-warning p {
+  margin: 0.5rem 0;
+}
+
+.semantic-ai-cost-note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.semantic-ai-index-info {
+  margin: 1rem 0;
+}
+
+.semantic-ai-index-info ul {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+}
+
+/* Progress Modal */
+.semantic-ai-progress-modal {
+  max-width: 400px;
+}
+
+.semantic-ai-progress-status {
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.semantic-ai-progress-bar-container {
+  height: 8px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.semantic-ai-progress-bar {
+  height: 100%;
+  background: var(--interactive-accent);
+  transition: width 0.3s ease;
+}
+
+.semantic-ai-progress-bar.complete {
+  background: var(--text-success);
+}
+
+.semantic-ai-current-file {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-ai-index-stats {
+  background: var(--background-secondary);
+  padding: 1rem;
+  border-radius: var(--radius-m);
+  margin: 1rem 0;
+}
+
+.semantic-ai-index-stats p {
+  margin: 0.25rem 0;
+}
+
+/* Folder Selection Modal */
+.semantic-ai-folder-modal {
+  max-width: 400px;
+}
+
+.semantic-ai-folder-list {
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 1rem 0;
+}
+
+.semantic-ai-folder-item {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  margin-bottom: 0.25rem;
+  background: var(--background-secondary);
+  border: none;
+  border-radius: var(--radius-s);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-monospace);
+  font-size: 0.85rem;
+}
+
+.semantic-ai-folder-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.semantic-ai-cancel-btn {
+  margin-top: 0.5rem;
+}
+
+/* Tracker Filter */
+.semantic-ai-tracker-controls {
+  margin-bottom: 1rem;
+}
+
+.semantic-ai-type-filter {
+  padding: 0.5rem;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}

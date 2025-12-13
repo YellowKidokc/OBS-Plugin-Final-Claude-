@@ -40,11 +40,19 @@ import {
   BatchProcessingModal,
   TagSelectionModal
 } from './ui/result-panel';
+import { VaultIndexer } from './indexing/vault-indexer';
+import { ConceptTrackerView, CONCEPT_TRACKER_VIEW_TYPE } from './ui/concept-tracker-view';
+import {
+  IndexConfirmationModal,
+  IndexProgressModal,
+  FolderSelectionModal
+} from './ui/index-modal';
 
 export default class SemanticAIPlugin extends Plugin {
   settings: SemanticAISettings;
   promptManager: PromptManager;
   classifier: AIClassifier;
+  vaultIndexer: VaultIndexer;
 
   async onload(): Promise<void> {
     console.log('Loading Semantic AI plugin');
@@ -55,11 +63,22 @@ export default class SemanticAIPlugin extends Plugin {
     // Initialize managers
     this.promptManager = new PromptManager(this.settings);
     this.classifier = new AIClassifier(this.settings, this.promptManager);
+    this.vaultIndexer = new VaultIndexer(this.app.vault);
 
-    // Register view
+    // Register views
     this.registerView(
       MERMAID_VIEW_TYPE,
       (leaf) => new MermaidView(leaf, this.settings)
+    );
+
+    this.registerView(
+      CONCEPT_TRACKER_VIEW_TYPE,
+      (leaf) => new ConceptTrackerView(leaf, (filePath) => {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) {
+          this.app.workspace.getLeaf().openFile(file);
+        }
+      })
     );
 
     // Add settings tab
@@ -200,6 +219,57 @@ export default class SemanticAIPlugin extends Plugin {
         }
       }
     });
+
+    // Index current folder
+    this.addCommand({
+      id: 'index-current-folder',
+      name: 'Index Current Folder',
+      callback: async () => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (activeFile && activeFile.parent) {
+          await this.indexFolder(activeFile.parent);
+        } else {
+          new Notice('No folder selected');
+        }
+      }
+    });
+
+    // Index selected folder (opens folder picker)
+    this.addCommand({
+      id: 'index-select-folder',
+      name: 'Index Folder (Select)',
+      callback: async () => {
+        await this.showFolderSelectionForIndex();
+      }
+    });
+
+    // Index entire vault
+    this.addCommand({
+      id: 'index-vault',
+      name: 'Index Entire Vault',
+      callback: async () => {
+        await this.indexVault();
+      }
+    });
+
+    // Open concept tracker
+    this.addCommand({
+      id: 'open-concept-tracker',
+      name: 'Open Concept Tracker',
+      callback: async () => {
+        await this.openConceptTracker();
+      }
+    });
+
+    // Search concepts
+    this.addCommand({
+      id: 'search-concepts',
+      name: 'Search Concepts',
+      callback: async () => {
+        await this.openConceptTracker();
+        // The concept tracker view has a search tab
+      }
+    });
   }
 
   /**
@@ -263,6 +333,15 @@ export default class SemanticAIPlugin extends Plugin {
               .setIcon('brain')
               .onClick(async () => {
                 await this.batchClassifyFolder(file);
+              });
+          });
+
+          menu.addItem((item) => {
+            item
+              .setTitle('Index This Folder')
+              .setIcon('search')
+              .onClick(async () => {
+                await this.indexFolder(file);
               });
           });
         }
@@ -342,6 +421,40 @@ export default class SemanticAIPlugin extends Plugin {
           this.settings.showHiddenTags = !this.settings.showHiddenTags;
           this.saveSettings();
           new Notice(`Hidden tags ${this.settings.showHiddenTags ? 'shown' : 'hidden'}`);
+        });
+    });
+
+    menu.addSeparator();
+
+    menu.addItem((item) => {
+      item
+        .setTitle('Open Concept Tracker')
+        .setIcon('search')
+        .onClick(async () => {
+          await this.openConceptTracker();
+        });
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle('Index Current Folder')
+        .setIcon('folder-search')
+        .onClick(async () => {
+          const activeFile = this.app.workspace.getActiveFile();
+          if (activeFile && activeFile.parent) {
+            await this.indexFolder(activeFile.parent);
+          } else {
+            new Notice('No folder selected');
+          }
+        });
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle('Index Entire Vault')
+        .setIcon('vault')
+        .onClick(async () => {
+          await this.indexVault();
         });
     });
 
@@ -652,5 +765,124 @@ export default class SemanticAIPlugin extends Plugin {
     );
 
     modal.open();
+  }
+
+  /**
+   * Index a specific folder
+   */
+  async indexFolder(folder: TFolder): Promise<void> {
+    const estimate = await this.vaultIndexer.estimateIndexCost('folder', folder.path);
+
+    new IndexConfirmationModal(
+      this.app,
+      'folder',
+      folder.path,
+      estimate,
+      async () => {
+        await this.runIndexing('folder', folder.path);
+      },
+      () => {}
+    ).open();
+  }
+
+  /**
+   * Index entire vault
+   */
+  async indexVault(): Promise<void> {
+    const estimate = await this.vaultIndexer.estimateIndexCost('vault');
+
+    new IndexConfirmationModal(
+      this.app,
+      'vault',
+      '/',
+      estimate,
+      async () => {
+        await this.runIndexing('vault');
+      },
+      () => {}
+    ).open();
+  }
+
+  /**
+   * Run the actual indexing process
+   */
+  private async runIndexing(scope: 'folder' | 'vault', folderPath?: string): Promise<void> {
+    const progressModal = new IndexProgressModal(this.app);
+    progressModal.open();
+
+    try {
+      const index = await this.vaultIndexer.buildIndex(
+        scope,
+        folderPath,
+        (current, total, fileName) => {
+          progressModal.updateProgress(current, total, fileName);
+        }
+      );
+
+      progressModal.complete({
+        files: index.metadata.totalFiles,
+        concepts: index.metadata.totalConcepts,
+        relations: index.relations.length,
+        timeMs: index.metadata.processingTimeMs || 0
+      });
+
+      // Open concept tracker after indexing
+      setTimeout(() => {
+        progressModal.close();
+        this.openConceptTracker();
+      }, 1500);
+
+    } catch (error) {
+      progressModal.close();
+      new Notice(`Indexing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Show folder selection modal for indexing
+   */
+  async showFolderSelectionForIndex(): Promise<void> {
+    const folders: TFolder[] = [];
+
+    // Get all folders
+    this.app.vault.getAllLoadedFiles().forEach(file => {
+      if (file instanceof TFolder) {
+        folders.push(file);
+      }
+    });
+
+    new FolderSelectionModal(
+      this.app,
+      folders,
+      async (folder) => {
+        await this.indexFolder(folder);
+      }
+    ).open();
+  }
+
+  /**
+   * Open the concept tracker view
+   */
+  async openConceptTracker(): Promise<void> {
+    let leaf = this.app.workspace.getLeavesOfType(CONCEPT_TRACKER_VIEW_TYPE)[0];
+
+    if (!leaf) {
+      const rightLeaf = this.app.workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
+          type: CONCEPT_TRACKER_VIEW_TYPE,
+          active: true
+        });
+        leaf = rightLeaf;
+      }
+    }
+
+    if (leaf) {
+      this.app.workspace.revealLeaf(leaf);
+
+      const view = leaf.view as ConceptTrackerView;
+      const index = this.vaultIndexer.getIndex();
+      view.setIndex(index);
+    }
   }
 }
