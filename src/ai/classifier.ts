@@ -40,14 +40,15 @@ export class AIClassifier {
    */
   async classify(
     content: string,
-    types: TagType[] = ['Axiom', 'Claim', 'EvidenceBundle', 'Relationship']
+    types: TagType[] = ['Axiom', 'Claim', 'EvidenceBundle', 'Relationship'],
+    sourceFile?: string
   ): Promise<ClassificationResult> {
     const prompt = this.promptManager.buildClassificationPrompt(content, types);
 
     try {
       const response = await this.callAI(prompt);
       const parsed = this.parseAIResponse(response);
-      const tags = this.convertToTags(parsed);
+      const tags = this.convertToTags(parsed, sourceFile);
 
       return {
         tags,
@@ -62,13 +63,13 @@ export class AIClassifier {
   /**
    * Classify content for a single tag type
    */
-  async classifySingleType(content: string, type: TagType): Promise<ClassificationResult> {
+  async classifySingleType(content: string, type: TagType, sourceFile?: string): Promise<ClassificationResult> {
     const prompt = this.promptManager.buildSingleTypePrompt(content, type);
 
     try {
       const response = await this.callAI(prompt);
       const parsed = this.parseAIResponse(response);
-      const tags = this.convertToTags(parsed);
+      const tags = this.convertToTags(parsed, sourceFile);
 
       return {
         tags,
@@ -83,7 +84,7 @@ export class AIClassifier {
   /**
    * Run custom classifier
    */
-  async classifyCustom(content: string, keyword: string): Promise<ClassificationResult> {
+  async classifyCustom(content: string, keyword: string, sourceFile?: string): Promise<ClassificationResult> {
     const classifier = this.promptManager.findClassifierByKeyword(keyword);
 
     if (!classifier) {
@@ -95,7 +96,7 @@ export class AIClassifier {
     try {
       const response = await this.callAI(prompt);
       const parsed = this.parseAIResponse(response);
-      const tags = this.convertToTags(parsed);
+      const tags = this.convertToTags(parsed, sourceFile);
 
       return {
         tags,
@@ -327,7 +328,7 @@ export class AIClassifier {
   /**
    * Convert AI responses to semantic tags
    */
-  private convertToTags(responses: AIClassificationResponse[]): SemanticTag[] {
+  private convertToTags(responses: AIClassificationResponse[], sourceFile?: string): SemanticTag[] {
     const tags: SemanticTag[] = [];
     const labelToUuid = new Map<string, string>();
 
@@ -341,7 +342,8 @@ export class AIClassifier {
         response.type as TagType,
         response.label,
         null,
-        response.type === 'Custom' ? (response as { customType?: string }).customType : undefined
+        response.type === 'Custom' ? (response as { customType?: string }).customType : undefined,
+        sourceFile
       );
 
       if (response.metadata) {
@@ -436,7 +438,7 @@ export class BatchClassifier {
       this.onProgress(file.path, 'processing');
 
       try {
-        const result = await this.classifier.classify(file.content, types);
+        const result = await this.classifier.classify(file.content, types, file.path);
         results.set(file.path, result);
 
         const counts: Record<string, number> = {};

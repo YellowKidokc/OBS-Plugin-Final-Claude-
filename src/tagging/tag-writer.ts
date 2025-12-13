@@ -6,23 +6,72 @@
 import { TFile, Vault } from 'obsidian';
 import { SemanticTag, TagType, ParsedTag } from '../types';
 import { generateUUID, globalUUIDRegistry } from './uuid-generator';
+import { ConceptRegistry } from './concept-registry';
 
 // Tag format: %%tag::TYPE::UUID::"Label"::parent_UUID%%
 const TAG_REGEX = /%%tag::([^:]+)::([^:]+)::"([^"]+)"::([^%]*)%%/g;
 const TAG_BLOCK_START = '\n\n%%--- SEMANTIC TAGS ---%%\n';
 const TAG_BLOCK_END = '\n%%--- END SEMANTIC TAGS ---%%';
 
+// Global concept registry reference (set by plugin)
+let conceptRegistry: ConceptRegistry | null = null;
+
 /**
- * Create a semantic tag object
+ * Set the global concept registry
+ */
+export function setConceptRegistry(registry: ConceptRegistry): void {
+  conceptRegistry = registry;
+}
+
+/**
+ * Get the global concept registry
+ */
+export function getConceptRegistry(): ConceptRegistry | null {
+  return conceptRegistry;
+}
+
+/**
+ * Create a semantic tag object (uses registry if available)
  */
 export function createTag(
   type: TagType,
   label: string,
   parentUuid: string | null = null,
+  customType?: string,
+  sourceFile?: string
+): SemanticTag {
+  let uuid: string;
+
+  // Use concept registry for consistent UUIDs
+  if (conceptRegistry && sourceFile) {
+    uuid = conceptRegistry.getOrCreateUUID(label, type, sourceFile);
+  } else {
+    // Fallback to simple UUID generation
+    uuid = globalUUIDRegistry.generateUnique();
+    globalUUIDRegistry.register(uuid, label);
+  }
+
+  return {
+    type,
+    uuid,
+    label,
+    parentUuid,
+    customType
+  };
+}
+
+/**
+ * Create a tag with explicit registry usage
+ */
+export function createTagWithRegistry(
+  registry: ConceptRegistry,
+  type: TagType,
+  label: string,
+  sourceFile: string,
+  parentUuid: string | null = null,
   customType?: string
 ): SemanticTag {
-  const uuid = globalUUIDRegistry.generateUnique();
-  globalUUIDRegistry.register(uuid, label);
+  const uuid = registry.getOrCreateUUID(label, type, sourceFile);
 
   return {
     type,

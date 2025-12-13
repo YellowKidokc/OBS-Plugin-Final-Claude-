@@ -32,8 +32,10 @@ import {
   parseTags,
   hasTagBlock,
   getContentWithTagVisibility,
-  getTagCounts
+  getTagCounts,
+  setConceptRegistry
 } from './tagging/tag-writer';
+import { ConceptRegistry } from './tagging/concept-registry';
 import { MermaidView, MERMAID_VIEW_TYPE, createMermaidCodeBlock } from './ui/mermaid-view';
 import {
   ClassificationResultModal,
@@ -53,6 +55,7 @@ export default class SemanticAIPlugin extends Plugin {
   promptManager: PromptManager;
   classifier: AIClassifier;
   vaultIndexer: VaultIndexer;
+  conceptRegistry: ConceptRegistry;
 
   async onload(): Promise<void> {
     console.log('Loading Semantic AI plugin');
@@ -64,6 +67,11 @@ export default class SemanticAIPlugin extends Plugin {
     this.promptManager = new PromptManager(this.settings);
     this.classifier = new AIClassifier(this.settings, this.promptManager);
     this.vaultIndexer = new VaultIndexer(this.app.vault);
+
+    // Initialize concept registry for consistent UUIDs
+    this.conceptRegistry = new ConceptRegistry(this.app.vault);
+    await this.conceptRegistry.load();
+    setConceptRegistry(this.conceptRegistry);
 
     // Register views
     this.registerView(
@@ -101,6 +109,11 @@ export default class SemanticAIPlugin extends Plugin {
 
   async onunload(): Promise<void> {
     console.log('Unloading Semantic AI plugin');
+
+    // Save concept registry if it has changes
+    if (this.conceptRegistry && this.conceptRegistry.isDirty()) {
+      await this.conceptRegistry.save();
+    }
   }
 
   async loadSettings(): Promise<void> {
@@ -268,6 +281,49 @@ export default class SemanticAIPlugin extends Plugin {
       callback: async () => {
         await this.openConceptTracker();
         // The concept tracker view has a search tab
+      }
+    });
+
+    // Concept Registry commands
+    this.addCommand({
+      id: 'view-concept-registry',
+      name: 'View Concept Registry Stats',
+      callback: () => {
+        const stats = this.conceptRegistry.getStats();
+        const typeBreakdown = Object.entries(stats.byType)
+          .map(([type, count]) => `  ${type}: ${count}`)
+          .join('\n');
+
+        new Notice(
+          `Concept Registry:\n` +
+          `Total concepts: ${stats.totalConcepts}\n` +
+          `Concepts with aliases: ${stats.withAliases}\n` +
+          `Last updated: ${new Date(stats.lastUpdated).toLocaleString()}\n` +
+          `By type:\n${typeBreakdown}`,
+          10000
+        );
+      }
+    });
+
+    this.addCommand({
+      id: 'export-concept-registry',
+      name: 'Export Concept Registry',
+      callback: async () => {
+        const json = this.conceptRegistry.exportJSON();
+        const filename = `concept-registry-${new Date().toISOString().split('T')[0]}.json`;
+
+        // Create export file in vault root
+        await this.app.vault.create(filename, json);
+        new Notice(`Exported concept registry to ${filename}`);
+      }
+    });
+
+    this.addCommand({
+      id: 'save-concept-registry',
+      name: 'Save Concept Registry',
+      callback: async () => {
+        await this.conceptRegistry.save();
+        new Notice('Concept registry saved');
       }
     });
   }
@@ -496,7 +552,7 @@ export default class SemanticAIPlugin extends Plugin {
       const content = await this.app.vault.read(file);
       const defaultTypes: TagType[] = ['Axiom', 'Claim', 'EvidenceBundle', 'Relationship'];
 
-      const result = await this.classifier.classify(content, defaultTypes);
+      const result = await this.classifier.classify(content, defaultTypes, file.path);
 
       // Show result modal
       new ClassificationResultModal(
@@ -507,6 +563,11 @@ export default class SemanticAIPlugin extends Plugin {
           // Apply tags
           await writeTags(this.app.vault, file, result.tags);
           new Notice(`Applied ${result.tags.length} tags`);
+
+          // Save concept registry
+          if (this.conceptRegistry.isDirty()) {
+            await this.conceptRegistry.save();
+          }
 
           // Generate Mermaid if enabled
           if (this.settings.autoGenerateMermaid) {
@@ -560,7 +621,7 @@ export default class SemanticAIPlugin extends Plugin {
 
     try {
       const content = await this.app.vault.read(file);
-      const result = await this.classifier.classify(content, types);
+      const result = await this.classifier.classify(content, types, file.path);
 
       new ClassificationResultModal(
         this.app,
@@ -569,6 +630,11 @@ export default class SemanticAIPlugin extends Plugin {
         async () => {
           await writeTags(this.app.vault, file, result.tags);
           new Notice(`Applied ${result.tags.length} tags`);
+
+          // Save concept registry
+          if (this.conceptRegistry.isDirty()) {
+            await this.conceptRegistry.save();
+          }
 
           if (this.settings.autoGenerateMermaid) {
             if (this.settings.mermaidPosition === 'panel') {
@@ -600,7 +666,7 @@ export default class SemanticAIPlugin extends Plugin {
 
     try {
       const content = await this.app.vault.read(file);
-      const result = await this.classifier.classifySingleType(content, type);
+      const result = await this.classifier.classifySingleType(content, type, file.path);
 
       new ClassificationResultModal(
         this.app,
@@ -609,6 +675,11 @@ export default class SemanticAIPlugin extends Plugin {
         async () => {
           await writeTags(this.app.vault, file, result.tags);
           new Notice(`Applied ${result.tags.length} ${type} tags`);
+
+          // Save concept registry
+          if (this.conceptRegistry.isDirty()) {
+            await this.conceptRegistry.save();
+          }
         },
         () => {}
       ).open();
@@ -757,6 +828,11 @@ export default class SemanticAIPlugin extends Plugin {
           if (file && result.tags.length > 0) {
             await writeTags(this.app.vault, file, result.tags);
           }
+        }
+
+        // Save concept registry after batch processing
+        if (this.conceptRegistry.isDirty()) {
+          await this.conceptRegistry.save();
         }
 
         modal.complete(totalTags);
