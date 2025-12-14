@@ -1327,3 +1327,41 @@
 .analysis-section li:last-child {
   margin-bottom: 0;
 }
+
+/* ======================== */
+/* Copy Button Styling      */
+/* ======================== */
+
+.semantic-ai-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.semantic-ai-header-row h4 {
+  margin: 0;
+  flex: 1;
+}
+
+.semantic-ai-copy-btn {
+  padding: 0.4rem 0.75rem;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.semantic-ai-copy-btn:hover {
+  background: var(--interactive-accent-hover);
+  transform: translateY(-1px);
+}
+
+.semantic-ai-copy-btn:active {
+  transform: translateY(0);
+}
