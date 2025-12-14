@@ -254,6 +254,54 @@ JSON Response:`;
   }
 
   /**
+   * Build prompt for concept journey analysis
+   * Analyzes the evolution of a concept across multiple documents
+   */
+  buildConceptJourneyPrompt(
+    concept: string,
+    aliases: string[],
+    occurrences: { file: string; type: string; label: string }[]
+  ): string {
+    const aliasText = aliases.length > 0
+      ? `\nAliases/Related terms: ${aliases.join(', ')}`
+      : '';
+
+    const occurrenceList = occurrences.map((o, i) =>
+      `${i + 1}. File: "${o.file}"\n   Type: ${o.type}\n   Label: "${o.label}"`
+    ).join('\n\n');
+
+    return `You are analyzing the evolution of a concept across multiple academic documents/notes.
+
+CONCEPT: "${concept}"${aliasText}
+
+OCCURRENCES (in document order):
+${occurrenceList}
+
+TASK: Analyze how this concept evolves across these documents. Provide your analysis as a JSON object with the following structure:
+
+{
+  "narrative": "A 2-4 sentence narrative describing how this concept develops across the documents. Note any shifts in meaning, growing complexity, or evolution of understanding.",
+  "contradictions": [
+    "List any potential contradictions or tensions between how the concept is used in different documents. Return empty array if none."
+  ],
+  "gaps": [
+    "List any logical gaps - places where the reasoning jumps without support, or where evidence is missing. Return empty array if none."
+  ],
+  "suggestions": [
+    "List suggestions for strengthening the argument chain - additional evidence needed, connections to explore, or concepts to define more clearly. Return empty array if none."
+  ]
+}
+
+Important:
+- Be specific and reference actual file names when discussing contradictions or gaps
+- Focus on the intellectual journey of understanding, not just listing where it appears
+- If the concept appears consistently without evolution, note that in the narrative
+- Return ONLY valid JSON, no other text
+
+JSON Response:`;
+  }
+
+  /**
    * Export prompts to JSON
    */
   exportPrompts(): string {

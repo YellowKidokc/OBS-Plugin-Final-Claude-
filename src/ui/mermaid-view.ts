@@ -3,7 +3,7 @@
  * Generates and displays Mermaid.js diagrams from semantic tags
  */
 
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice } from 'obsidian';
 import { SemanticTag, TagType, SemanticAISettings } from '../types';
 import { buildTagHierarchy } from '../tagging/tag-writer';
 
@@ -82,9 +82,17 @@ export class MermaidView extends ItemView {
    * Render the complete view
    */
   private renderView(container: HTMLElement): void {
-    // Header
+    // Header with copy button
     const header = container.createEl('div', { cls: 'semantic-ai-header' });
-    header.createEl('h4', { text: `Semantic Map: ${this.currentFilePath.split('/').pop()}` });
+    const headerRow = header.createEl('div', { cls: 'semantic-ai-header-row' });
+    headerRow.createEl('h4', { text: `Semantic Map: ${this.currentFilePath.split('/').pop()}` });
+
+    // Copy All button
+    const copyBtn = headerRow.createEl('button', {
+      cls: 'semantic-ai-copy-btn',
+      text: '📋 Copy All'
+    });
+    copyBtn.addEventListener('click', () => this.copyAllContent());
 
     // Summary
     const summary = container.createEl('div', { cls: 'semantic-ai-summary' });
@@ -97,6 +105,55 @@ export class MermaidView extends ItemView {
     // Tag list
     const tagList = container.createEl('div', { cls: 'semantic-ai-tag-list' });
     this.renderTagList(tagList);
+  }
+
+  /**
+   * Copy all content to clipboard
+   */
+  private async copyAllContent(): Promise<void> {
+    const fileName = this.currentFilePath.split('/').pop() || 'Unknown';
+
+    // Build tag summary
+    const counts: Record<string, number> = {};
+    for (const tag of this.currentTags) {
+      const key = tag.customType || tag.type;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+
+    const summaryLines = Object.entries(counts)
+      .map(([type, count]) => `  ${type}: ${count}`)
+      .join('\n');
+
+    // Build tag details
+    const tagDetails = this.currentTags
+      .map(tag => `- [${tag.type}] ${tag.label} (${tag.uuid.slice(0, 8)})`)
+      .join('\n');
+
+    // Get Mermaid code
+    const mermaidCode = this.generateMermaid();
+
+    // Build full output
+    const output = `# Semantic Map: ${fileName}
+
+## Summary
+${summaryLines}
+
+## Tags (${this.currentTags.length} total)
+${tagDetails}
+
+## Mermaid Diagram
+\`\`\`mermaid
+${mermaidCode}
+\`\`\`
+`;
+
+    try {
+      await navigator.clipboard.writeText(output);
+      new Notice('Copied to clipboard!');
+    } catch (error) {
+      new Notice('Failed to copy to clipboard');
+      console.error('Copy failed:', error);
+    }
   }
 
   /**
