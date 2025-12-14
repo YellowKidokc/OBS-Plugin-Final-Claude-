@@ -45,6 +45,12 @@ import {
 import { VaultIndexer } from './indexing/vault-indexer';
 import { ConceptTrackerView, CONCEPT_TRACKER_VIEW_TYPE } from './ui/concept-tracker-view';
 import {
+  ConceptJourneyView,
+  CONCEPT_JOURNEY_VIEW_TYPE,
+  ConceptJourney,
+  JourneyAnalysis
+} from './ui/concept-journey-view';
+import {
   IndexConfirmationModal,
   IndexProgressModal,
   FolderSelectionModal
@@ -87,6 +93,11 @@ export default class SemanticAIPlugin extends Plugin {
           this.app.workspace.getLeaf().openFile(file);
         }
       })
+    );
+
+    this.registerView(
+      CONCEPT_JOURNEY_VIEW_TYPE,
+      (leaf) => new ConceptJourneyView(leaf)
     );
 
     // Add settings tab
@@ -326,6 +337,15 @@ export default class SemanticAIPlugin extends Plugin {
         new Notice('Concept registry saved');
       }
     });
+
+    // Concept Journey command
+    this.addCommand({
+      id: 'open-concept-journey',
+      name: 'Open Concept Journey',
+      callback: async () => {
+        await this.openConceptJourney();
+      }
+    });
   }
 
   /**
@@ -488,6 +508,15 @@ export default class SemanticAIPlugin extends Plugin {
         .setIcon('search')
         .onClick(async () => {
           await this.openConceptTracker();
+        });
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle('Open Concept Journey')
+        .setIcon('route')
+        .onClick(async () => {
+          await this.openConceptJourney();
         });
     });
 
@@ -960,5 +989,217 @@ export default class SemanticAIPlugin extends Plugin {
       const index = this.vaultIndexer.getIndex();
       view.setIndex(index);
     }
+  }
+
+  /**
+   * Open the concept journey view
+   */
+  async openConceptJourney(): Promise<void> {
+    let leaf = this.app.workspace.getLeavesOfType(CONCEPT_JOURNEY_VIEW_TYPE)[0];
+
+    if (!leaf) {
+      const rightLeaf = this.app.workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
+          type: CONCEPT_JOURNEY_VIEW_TYPE,
+          active: true
+        });
+        leaf = rightLeaf;
+      }
+    }
+
+    if (leaf) {
+      this.app.workspace.revealLeaf(leaf);
+
+      const view = leaf.view as ConceptJourneyView;
+      const index = this.vaultIndexer.getIndex();
+
+      // Set up the view with data sources and callbacks
+      view.setDataSources(
+        this.conceptRegistry,
+        index,
+        // Open file callback
+        (filePath: string) => {
+          const file = this.app.vault.getAbstractFileByPath(filePath);
+          if (file instanceof TFile) {
+            this.app.workspace.getLeaf().openFile(file);
+          }
+        },
+        // Analyze journey callback
+        async (journey: ConceptJourney): Promise<JourneyAnalysis> => {
+          return this.analyzeConceptJourney(journey);
+        },
+        // Generate forward links callback
+        async (journey: ConceptJourney): Promise<void> => {
+          return this.generateConceptForwardLinks(journey);
+        }
+      );
+    }
+  }
+
+  /**
+   * Analyze a concept journey using AI
+   */
+  private async analyzeConceptJourney(journey: ConceptJourney): Promise<JourneyAnalysis> {
+    const validation = this.classifier.validateConfiguration();
+    if (!validation.valid) {
+      throw new Error(`Configuration error: ${validation.error}`);
+    }
+
+    // Build the occurrences list for the prompt
+    const occurrences = journey.occurrences.map(o => ({
+      file: o.fileName,
+      type: o.tag.type,
+      label: o.tag.label
+    }));
+
+    const prompt = this.promptManager.buildConceptJourneyPrompt(
+      journey.concept,
+      journey.aliases,
+      occurrences
+    );
+
+    try {
+      // Call the AI using the classifier's internal method via a simple wrapper
+      const response = await this.callAIForJourney(prompt);
+
+      // Parse the response
+      let jsonStr = response.trim();
+      const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1].trim();
+      }
+
+      const objectMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (objectMatch) {
+        jsonStr = objectMatch[0];
+      }
+
+      const analysis = JSON.parse(jsonStr);
+
+      return {
+        narrative: analysis.narrative || 'No narrative generated.',
+        contradictions: analysis.contradictions || [],
+        gaps: analysis.gaps || [],
+        suggestions: analysis.suggestions || []
+      };
+    } catch (error) {
+      console.error('Journey analysis error:', error);
+      throw new Error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Call AI for journey analysis (wrapper method)
+   */
+  private async callAIForJourney(prompt: string): Promise<string> {
+    // Use requestUrl directly since we can't access private methods
+    const { requestUrl } = await import('obsidian');
+
+    if (!this.settings.apiKey && this.settings.aiProvider !== 'ollama') {
+      throw new Error('API key not configured');
+    }
+
+    switch (this.settings.aiProvider) {
+      case 'openai': {
+        const response = await requestUrl({
+          url: this.settings.apiEndpoint || 'https://api.openai.com/v1/chat/completions',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.settings.apiKey}`
+          },
+          body: JSON.stringify({
+            model: this.settings.modelName || 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3,
+            max_tokens: 2048
+          })
+        });
+        return response.json.choices[0]?.message?.content || '';
+      }
+
+      case 'anthropic': {
+        const response = await requestUrl({
+          url: 'https://api.anthropic.com/v1/messages',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': this.settings.apiKey,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: this.settings.modelName || 'claude-3-haiku-20240307',
+            max_tokens: 2048,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+        return response.json.content[0]?.text || '';
+      }
+
+      case 'ollama': {
+        const response = await requestUrl({
+          url: this.settings.apiEndpoint || 'http://localhost:11434/api/generate',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.settings.modelName || 'llama2',
+            prompt: prompt,
+            stream: false
+          })
+        });
+        return response.json.response || '';
+      }
+
+      default:
+        throw new Error(`Unknown AI provider: ${this.settings.aiProvider}`);
+    }
+  }
+
+  /**
+   * Generate forward links for a concept journey
+   */
+  private async generateConceptForwardLinks(journey: ConceptJourney): Promise<void> {
+    if (journey.occurrences.length < 2) {
+      new Notice('Need at least 2 occurrences to generate forward links');
+      return;
+    }
+
+    let linksAdded = 0;
+
+    // Add forward link comments to each file pointing to the next occurrence
+    for (let i = 0; i < journey.occurrences.length - 1; i++) {
+      const current = journey.occurrences[i];
+      const next = journey.occurrences[i + 1];
+
+      const file = this.app.vault.getAbstractFileByPath(current.file);
+      if (!(file instanceof TFile)) continue;
+
+      const content = await this.app.vault.read(file);
+
+      // Create forward link comment
+      const forwardLink = `\n%%forward-link::${journey.concept}::[[${next.fileName}]]%%`;
+
+      // Check if link already exists
+      if (content.includes(`forward-link::${journey.concept}`)) {
+        continue; // Skip if already has forward link for this concept
+      }
+
+      // Add after the tag block or at the end
+      let newContent: string;
+      const tagBlockEnd = content.indexOf('%%--- END SEMANTIC TAGS ---%%');
+      if (tagBlockEnd !== -1) {
+        newContent = content.slice(0, tagBlockEnd + '%%--- END SEMANTIC TAGS ---%%'.length) +
+                     forwardLink +
+                     content.slice(tagBlockEnd + '%%--- END SEMANTIC TAGS ---%%'.length);
+      } else {
+        newContent = content.trimEnd() + forwardLink;
+      }
+
+      await this.app.vault.modify(file, newContent);
+      linksAdded++;
+    }
+
+    new Notice(`Added ${linksAdded} forward links for "${journey.concept}"`);
   }
 }
