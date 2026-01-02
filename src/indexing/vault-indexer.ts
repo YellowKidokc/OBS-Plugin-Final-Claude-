@@ -61,6 +61,7 @@ export interface IndexMetadata {
   totalConcepts: number;
   estimatedTokens?: number;
   processingTimeMs?: number;
+  skippedRelations?: boolean;  // True if we skipped expensive relation calculation
 }
 
 /**
@@ -85,14 +86,50 @@ export interface IndexCostEstimate {
 }
 
 /**
+ * Indexer configuration
+ */
+export interface IndexerConfig {
+  maxFiles: number;           // Max files to process (default 1000)
+  maxRelationFiles: number;   // Max files for cross-relation (default 200)
+  excludePatterns: string[];  // Folders to exclude
+  batchSize: number;          // Files per batch (default 50)
+  batchDelayMs: number;       // Delay between batches (default 10)
+}
+
+const DEFAULT_CONFIG: IndexerConfig = {
+  maxFiles: 1000,
+  maxRelationFiles: 200,
+  excludePatterns: [
+    '.obsidian',
+    'node_modules',
+    '.git',
+    '_archive',
+    '_Archive',
+    '.trash',
+    'Trash'
+  ],
+  batchSize: 50,
+  batchDelayMs: 10
+};
+
+/**
  * Vault Indexer class
  */
 export class VaultIndexer {
   private vault: Vault;
   private currentIndex: VaultIndex | null = null;
+  private config: IndexerConfig;
 
-  constructor(vault: Vault) {
+  constructor(vault: Vault, config?: Partial<IndexerConfig>) {
     this.vault = vault;
+    this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Update configuration
+   */
+  setConfig(config: Partial<IndexerConfig>): void {
+    this.config = { ...this.config, ...config };
   }
 
   /**
@@ -140,24 +177,42 @@ export class VaultIndexer {
   }
 
   /**
-   * Get markdown files in scope
+   * Get markdown files in scope (with exclusions and limits)
    */
   private getFilesInScope(scope: 'folder' | 'vault', folderPath?: string): TFile[] {
-    const allFiles = this.vault.getMarkdownFiles();
+    let files = this.vault.getMarkdownFiles();
 
-    if (scope === 'vault') {
-      return allFiles;
-    }
-
+    // Filter by folder scope
     if (scope === 'folder' && folderPath) {
-      return allFiles.filter(f => f.path.startsWith(folderPath));
+      files = files.filter(f => f.path.startsWith(folderPath));
     }
 
-    return allFiles;
+    // Apply exclusion patterns
+    files = files.filter(f => {
+      const lowerPath = f.path.toLowerCase();
+      return !this.config.excludePatterns.some(pattern =>
+        lowerPath.includes(pattern.toLowerCase())
+      );
+    });
+
+    // Apply file limit
+    if (files.length > this.config.maxFiles) {
+      new Notice(`Large vault: limiting to ${this.config.maxFiles} files. Consider indexing specific folders.`, 5000);
+      files = files.slice(0, this.config.maxFiles);
+    }
+
+    return files;
   }
 
   /**
-   * Build index for folder or vault
+   * Sleep for batching
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Build index for folder or vault (memory-safe with batching)
    */
   async buildIndex(
     scope: 'folder' | 'vault',
@@ -172,117 +227,150 @@ export class VaultIndexer {
     const relations: CrossDocumentRelation[] = [];
 
     let totalTags = 0;
+    let skippedRelations = false;
 
-    // Process each file
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    // Process files in batches to avoid memory pressure
+    for (let batchStart = 0; batchStart < files.length; batchStart += this.config.batchSize) {
+      const batchEnd = Math.min(batchStart + this.config.batchSize, files.length);
 
-      if (onProgress) {
-        onProgress(i + 1, files.length, file.name);
-      }
+      for (let i = batchStart; i < batchEnd; i++) {
+        const file = files[i];
 
-      const content = await this.vault.read(file);
-      const parsedTags = parseTags(content);
-      const tags = parsedTags.map(pt => pt.tag);
+        if (onProgress) {
+          onProgress(i + 1, files.length, file.name);
+        }
 
-      fileIndex.set(file.path, tags);
-      totalTags += tags.length;
+        try {
+          const content = await this.vault.read(file);
+          const parsedTags = parseTags(content);
+          const tags = parsedTags.map(pt => pt.tag);
 
-      // Index each tag as a concept
-      for (const parsedTag of parsedTags) {
-        const tag = parsedTag.tag;
-        const normalizedLabel = this.normalizeLabel(tag.label);
+          fileIndex.set(file.path, tags);
+          totalTags += tags.length;
 
-        const occurrence: ConceptOccurrence = {
-          filePath: file.path,
-          fileName: file.name,
-          tagUuid: tag.uuid,
-          tagType: tag.type,
-          label: tag.label,
-          lineNumber: parsedTag.lineNumber
-        };
+          // Index each tag as a concept
+          for (const parsedTag of parsedTags) {
+            const tag = parsedTag.tag;
+            const normalizedLabel = this.normalizeLabel(tag.label);
 
-        if (concepts.has(normalizedLabel)) {
-          const entry = concepts.get(normalizedLabel)!;
-          entry.occurrences.push(occurrence);
-          entry.totalCount++;
-
-          if (!entry.tagTypes.includes(tag.type)) {
-            entry.tagTypes.push(tag.type);
-          }
-
-          // Track unique files
-          const uniqueFiles = new Set(entry.occurrences.map(o => o.filePath));
-          entry.fileCount = uniqueFiles.size;
-        } else {
-          concepts.set(normalizedLabel, {
-            label: tag.label,
-            normalizedLabel,
-            occurrences: [occurrence],
-            firstSeen: {
+            const occurrence: ConceptOccurrence = {
               filePath: file.path,
               fileName: file.name,
-              date: new Date().toISOString()
-            },
-            totalCount: 1,
-            fileCount: 1,
-            tagTypes: [tag.type],
-            relatedConcepts: []
-          });
-        }
-      }
-    }
+              tagUuid: tag.uuid,
+              tagType: tag.type,
+              label: tag.label,
+              lineNumber: parsedTag.lineNumber
+            };
 
-    // Build cross-document relations
-    const fileConceptMap = new Map<string, Set<string>>();
+            if (concepts.has(normalizedLabel)) {
+              const entry = concepts.get(normalizedLabel)!;
+              entry.occurrences.push(occurrence);
+              entry.totalCount++;
 
-    for (const [filePath, tags] of fileIndex) {
-      const conceptsInFile = new Set(tags.map(t => this.normalizeLabel(t.label)));
-      fileConceptMap.set(filePath, conceptsInFile);
-    }
+              if (!entry.tagTypes.includes(tag.type)) {
+                entry.tagTypes.push(tag.type);
+              }
 
-    // Find relationships between files
-    const filePaths = Array.from(fileConceptMap.keys());
-    for (let i = 0; i < filePaths.length; i++) {
-      for (let j = i + 1; j < filePaths.length; j++) {
-        const file1 = filePaths[i];
-        const file2 = filePaths[j];
-        const concepts1 = fileConceptMap.get(file1)!;
-        const concepts2 = fileConceptMap.get(file2)!;
-
-        const sharedConcepts = Array.from(concepts1).filter(c => concepts2.has(c));
-
-        if (sharedConcepts.length > 0) {
-          const maxConcepts = Math.max(concepts1.size, concepts2.size);
-          const relationshipStrength = sharedConcepts.length / maxConcepts;
-
-          relations.push({
-            sourceFile: file1,
-            targetFile: file2,
-            sharedConcepts,
-            relationshipStrength
-          });
-        }
-      }
-    }
-
-    // Find related concepts (concepts that appear in same files)
-    for (const [label, entry] of concepts) {
-      const filesWithConcept = new Set(entry.occurrences.map(o => o.filePath));
-      const related = new Set<string>();
-
-      for (const [otherLabel, otherEntry] of concepts) {
-        if (otherLabel === label) continue;
-
-        const otherFiles = new Set(otherEntry.occurrences.map(o => o.filePath));
-        const hasOverlap = Array.from(filesWithConcept).some(f => otherFiles.has(f));
-
-        if (hasOverlap) {
-          related.add(otherEntry.label);
+              // Track unique files
+              const uniqueFiles = new Set(entry.occurrences.map(o => o.filePath));
+              entry.fileCount = uniqueFiles.size;
+            } else {
+              concepts.set(normalizedLabel, {
+                label: tag.label,
+                normalizedLabel,
+                occurrences: [occurrence],
+                firstSeen: {
+                  filePath: file.path,
+                  fileName: file.name,
+                  date: new Date().toISOString()
+                },
+                totalCount: 1,
+                fileCount: 1,
+                tagTypes: [tag.type],
+                relatedConcepts: []
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to index file ${file.path}:`, error);
         }
       }
 
-      entry.relatedConcepts = Array.from(related).slice(0, 20); // Limit to 20
+      // Yield to main thread between batches to prevent UI freeze
+      if (batchEnd < files.length) {
+        await this.sleep(this.config.batchDelayMs);
+      }
+    }
+
+    // Only build cross-document relations for smaller indexes (O(n²) operation!)
+    const filesWithTags = Array.from(fileIndex.keys()).filter(f =>
+      (fileIndex.get(f)?.length || 0) > 0
+    );
+
+    if (filesWithTags.length <= this.config.maxRelationFiles) {
+      // Build cross-document relations
+      const fileConceptMap = new Map<string, Set<string>>();
+
+      for (const filePath of filesWithTags) {
+        const tags = fileIndex.get(filePath) || [];
+        const conceptsInFile = new Set(tags.map(t => this.normalizeLabel(t.label)));
+        fileConceptMap.set(filePath, conceptsInFile);
+      }
+
+      // Find relationships between files
+      for (let i = 0; i < filesWithTags.length; i++) {
+        for (let j = i + 1; j < filesWithTags.length; j++) {
+          const file1 = filesWithTags[i];
+          const file2 = filesWithTags[j];
+          const concepts1 = fileConceptMap.get(file1)!;
+          const concepts2 = fileConceptMap.get(file2)!;
+
+          const sharedConcepts = Array.from(concepts1).filter(c => concepts2.has(c));
+
+          if (sharedConcepts.length > 0) {
+            const maxConcepts = Math.max(concepts1.size, concepts2.size);
+            const relationshipStrength = sharedConcepts.length / maxConcepts;
+
+            relations.push({
+              sourceFile: file1,
+              targetFile: file2,
+              sharedConcepts,
+              relationshipStrength
+            });
+          }
+        }
+
+        // Yield occasionally during relation building
+        if (i % 50 === 0 && i > 0) {
+          await this.sleep(1);
+        }
+      }
+
+      // Find related concepts (concepts that appear in same files)
+      // Only do this for smaller concept sets
+      if (concepts.size <= 500) {
+        for (const [label, entry] of concepts) {
+          const filesWithConcept = new Set(entry.occurrences.map(o => o.filePath));
+          const related = new Set<string>();
+
+          for (const [otherLabel, otherEntry] of concepts) {
+            if (otherLabel === label) continue;
+
+            const otherFiles = new Set(otherEntry.occurrences.map(o => o.filePath));
+            const hasOverlap = Array.from(filesWithConcept).some(f => otherFiles.has(f));
+
+            if (hasOverlap) {
+              related.add(otherEntry.label);
+            }
+          }
+
+          entry.relatedConcepts = Array.from(related).slice(0, 20);
+        }
+      }
+    } else {
+      // Skip expensive relation calculation for large vaults
+      skippedRelations = true;
+      new Notice(`Skipping cross-file relations for ${filesWithTags.length} files (too large). Use folder indexing for relations.`, 5000);
     }
 
     const processingTimeMs = Date.now() - startTime;
@@ -294,7 +382,8 @@ export class VaultIndexer {
       totalFiles: files.length,
       totalTags,
       totalConcepts: concepts.size,
-      processingTimeMs
+      processingTimeMs,
+      skippedRelations
     };
 
     this.currentIndex = {
