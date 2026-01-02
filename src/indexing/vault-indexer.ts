@@ -62,6 +62,8 @@ export interface IndexMetadata {
   estimatedTokens?: number;
   processingTimeMs?: number;
   skippedRelations?: boolean;  // True if we skipped expensive relation calculation
+  wasAborted?: boolean;        // True if indexing was aborted
+  warnings?: string[];         // Any warnings during indexing
 }
 
 /**
@@ -119,6 +121,7 @@ export class VaultIndexer {
   private vault: Vault;
   private currentIndex: VaultIndex | null = null;
   private config: IndexerConfig;
+  private abortController: AbortController | null = null;
 
   constructor(vault: Vault, config?: Partial<IndexerConfig>) {
     this.vault = vault;
@@ -130,6 +133,23 @@ export class VaultIndexer {
    */
   setConfig(config: Partial<IndexerConfig>): void {
     this.config = { ...this.config, ...config };
+  }
+
+  /**
+   * Abort any ongoing indexing operation
+   */
+  abort(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+  }
+
+  /**
+   * Check if indexing is in progress
+   */
+  isIndexing(): boolean {
+    return this.abortController !== null;
   }
 
   /**
@@ -219,8 +239,16 @@ export class VaultIndexer {
     folderPath?: string,
     onProgress?: (current: number, total: number, fileName: string) => void
   ): Promise<VaultIndex> {
+    // Abort any previous indexing operation
+    this.abort();
+
+    // Create new abort controller for this operation
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
+
     const startTime = Date.now();
     const files = this.getFilesInScope(scope, folderPath);
+    const warnings: string[] = [];
 
     const concepts = new Map<string, ConceptEntry>();
     const fileIndex = new Map<string, SemanticTag[]>();
@@ -231,9 +259,20 @@ export class VaultIndexer {
 
     // Process files in batches to avoid memory pressure
     for (let batchStart = 0; batchStart < files.length; batchStart += this.config.batchSize) {
+      // Check for abort before each batch
+      if (signal.aborted) {
+        warnings.push('Indexing was aborted by user');
+        break;
+      }
+
       const batchEnd = Math.min(batchStart + this.config.batchSize, files.length);
 
       for (let i = batchStart; i < batchEnd; i++) {
+        // Check for abort within batch
+        if (signal.aborted) {
+          break;
+        }
+
         const file = files[i];
 
         if (onProgress) {
@@ -307,7 +346,7 @@ export class VaultIndexer {
       (fileIndex.get(f)?.length || 0) > 0
     );
 
-    if (filesWithTags.length <= this.config.maxRelationFiles) {
+    if (!signal.aborted && filesWithTags.length <= this.config.maxRelationFiles) {
       // Build cross-document relations
       const fileConceptMap = new Map<string, Set<string>>();
 
@@ -318,7 +357,7 @@ export class VaultIndexer {
       }
 
       // Find relationships between files
-      for (let i = 0; i < filesWithTags.length; i++) {
+      for (let i = 0; i < filesWithTags.length && !signal.aborted; i++) {
         for (let j = i + 1; j < filesWithTags.length; j++) {
           const file1 = filesWithTags[i];
           const file2 = filesWithTags[j];
@@ -348,8 +387,10 @@ export class VaultIndexer {
 
       // Find related concepts (concepts that appear in same files)
       // Only do this for smaller concept sets
-      if (concepts.size <= 500) {
+      if (!signal.aborted && concepts.size <= 500) {
         for (const [label, entry] of concepts) {
+          if (signal.aborted) break;
+
           const filesWithConcept = new Set(entry.occurrences.map(o => o.filePath));
           const related = new Set<string>();
 
@@ -367,13 +408,18 @@ export class VaultIndexer {
           entry.relatedConcepts = Array.from(related).slice(0, 20);
         }
       }
-    } else {
+    } else if (!signal.aborted) {
       // Skip expensive relation calculation for large vaults
       skippedRelations = true;
+      warnings.push(`Skipped cross-file relations for ${filesWithTags.length} files (too large)`);
       new Notice(`Skipping cross-file relations for ${filesWithTags.length} files (too large). Use folder indexing for relations.`, 5000);
     }
 
     const processingTimeMs = Date.now() - startTime;
+    const wasAborted = signal.aborted;
+
+    // Clean up abort controller
+    this.abortController = null;
 
     const metadata: IndexMetadata = {
       lastUpdated: new Date().toISOString(),
@@ -383,7 +429,9 @@ export class VaultIndexer {
       totalTags,
       totalConcepts: concepts.size,
       processingTimeMs,
-      skippedRelations
+      skippedRelations,
+      wasAborted,
+      warnings: warnings.length > 0 ? warnings : undefined
     };
 
     this.currentIndex = {
@@ -392,6 +440,11 @@ export class VaultIndexer {
       relations,
       fileIndex
     };
+
+    // Show notice if aborted
+    if (wasAborted) {
+      new Notice('Indexing was aborted. Partial results available.', 3000);
+    }
 
     return this.currentIndex;
   }

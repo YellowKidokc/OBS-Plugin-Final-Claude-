@@ -4,7 +4,8 @@
  */
 
 import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
-import { SemanticTag, TagType, VaultIndex } from '../types';
+import { SemanticTag, TagType } from '../types';
+import { VaultIndex, ConceptEntry } from '../indexing/vault-indexer';
 import { ConceptRegistry, ConceptRegistryEntry } from '../tagging/concept-registry';
 
 export const CONCEPT_JOURNEY_VIEW_TYPE = 'concept-journey-view';
@@ -81,7 +82,7 @@ export class ConceptJourneyView extends ItemView {
    */
   setDataSources(
     registry: ConceptRegistry,
-    index: VaultIndex,
+    index: VaultIndex | null,
     onOpenFile: (filePath: string) => void,
     onAnalyzeRequest: (journey: ConceptJourney) => Promise<JourneyAnalysis>,
     onGenerateForwardLinks: (journey: ConceptJourney) => Promise<void>
@@ -263,7 +264,7 @@ export class ConceptJourneyView extends ItemView {
 
     // Search through all indexed concepts
     let order = 0;
-    for (const [conceptKey, conceptData] of Object.entries(this.index.concepts)) {
+    for (const [conceptKey, conceptData] of this.index.concepts) {
       const normalizedKey = conceptKey.toLowerCase();
 
       // Check if this concept matches our search terms
@@ -272,25 +273,25 @@ export class ConceptJourneyView extends ItemView {
       );
 
       if (matches) {
-        for (const fileRef of conceptData.files) {
+        for (const occurrence of conceptData.occurrences) {
           occurrences.push({
-            file: fileRef.file,
-            fileName: fileRef.file.split('/').pop() || fileRef.file,
+            file: occurrence.filePath,
+            fileName: occurrence.fileName,
             tag: {
-              type: conceptData.type,
-              uuid: conceptData.uuid,
-              label: conceptData.label,
+              type: occurrence.tagType,
+              uuid: occurrence.tagUuid,
+              label: occurrence.label,
               parentUuid: null
             },
             order: order++
           });
 
           // Track type progression
-          const typeKey = `${conceptData.type}-${fileRef.file}`;
+          const typeKey = `${occurrence.tagType}-${occurrence.filePath}`;
           if (!typeCount.has(typeKey)) {
             typeCount.set(typeKey, {
-              type: conceptData.type,
-              file: fileRef.file,
+              type: occurrence.tagType,
+              file: occurrence.filePath,
               count: 1
             });
           } else {
@@ -299,8 +300,8 @@ export class ConceptJourneyView extends ItemView {
         }
       } else {
         // Check if this concept appears in same files as our search - it's related
-        for (const fileRef of conceptData.files) {
-          if (occurrences.some(o => o.file === fileRef.file)) {
+        for (const occurrence of conceptData.occurrences) {
+          if (occurrences.some(o => o.file === occurrence.filePath)) {
             relatedSet.add(conceptData.label);
           }
         }

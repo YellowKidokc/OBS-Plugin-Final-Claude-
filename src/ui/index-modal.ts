@@ -10,7 +10,7 @@ import { IndexCostEstimate } from '../indexing/vault-indexer';
  * Index Confirmation Modal
  */
 export class IndexConfirmationModal extends Modal {
-  private scope: 'folder' | 'vault';
+  private indexScope: 'folder' | 'vault';
   private scopePath: string;
   private estimate: IndexCostEstimate;
   private onConfirm: () => void;
@@ -18,14 +18,14 @@ export class IndexConfirmationModal extends Modal {
 
   constructor(
     app: App,
-    scope: 'folder' | 'vault',
+    indexScope: 'folder' | 'vault',
     scopePath: string,
     estimate: IndexCostEstimate,
     onConfirm: () => void,
     onCancel: () => void
   ) {
     super(app);
-    this.scope = scope;
+    this.indexScope = indexScope;
     this.scopePath = scopePath;
     this.estimate = estimate;
     this.onConfirm = onConfirm;
@@ -38,12 +38,12 @@ export class IndexConfirmationModal extends Modal {
 
     // Title
     contentEl.createEl('h2', {
-      text: this.scope === 'vault' ? 'Index Entire Vault' : 'Index Folder'
+      text: this.indexScope === 'vault' ? 'Index Entire Vault' : 'Index Folder'
     });
 
     // Scope info
     contentEl.createEl('p', {
-      text: this.scope === 'vault'
+      text: this.indexScope === 'vault'
         ? 'This will scan all markdown files in your vault.'
         : `This will scan all markdown files in: ${this.scopePath}`
     });
@@ -59,14 +59,14 @@ export class IndexConfirmationModal extends Modal {
     this.addEstimateItem(estimateGrid, 'Estimated tokens', `~${this.estimate.estimatedTokens.toLocaleString()}`);
 
     // Warning for vault-wide
-    if (this.scope === 'vault' || this.estimate.fileCount > 50) {
+    if (this.indexScope === 'vault' || this.estimate.fileCount > 50) {
       const warningEl = contentEl.createEl('div', { cls: 'semantic-ai-index-warning' });
 
       if (this.estimate.warning) {
         warningEl.createEl('p', { text: `⚠️ ${this.estimate.warning}` });
       }
 
-      if (this.scope === 'vault') {
+      if (this.indexScope === 'vault') {
         warningEl.createEl('p', {
           text: '💡 Tip: Consider indexing specific folders instead for faster results and lower costs.'
         });
@@ -101,7 +101,7 @@ export class IndexConfirmationModal extends Modal {
 
     const confirmBtn = actionsEl.createEl('button', {
       cls: 'mod-cta',
-      text: this.scope === 'vault' ? 'Index Vault' : 'Index Folder'
+      text: this.indexScope === 'vault' ? 'Index Vault' : 'Index Folder'
     });
     confirmBtn.onclick = () => {
       this.onConfirm();
